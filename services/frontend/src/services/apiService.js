@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: 'http://localhost:6000/api',
 });
 
 apiClient.interceptors.response.use(

@@ -1,5 +1,3 @@
-version: '3.8'  # Specify the version of Docker Compose
-
 services:
   mongo:
     image: mongo
@@ -66,7 +64,7 @@ services:
       - ./services/backend:/app
       - /app/node_modules  # Prevent overwriting node_modules inside the container
     ports:
-      - "5000:5000"
+      - "6000:6000"
     depends_on:
       - mongo
       - kafka  # Ensure Kafka is started before backend

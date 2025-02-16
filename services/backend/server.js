@@ -77,4 +77,4 @@ io.on('connection', (socket) => {
 });
 
 // Start the server.
-server.listen(5000, () => console.log(`Server running on port 5000`));
+server.listen(6000, () => console.log(`Server running on port 6000`));
