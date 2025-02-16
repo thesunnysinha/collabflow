@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const documentSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true
+    required: [true, 'Title is required'],
+    trim: true
   },
   content: {
     type: String,
@@ -11,7 +12,7 @@ const documentSchema = new mongoose.Schema({
   },
   language: {
     type: String,
-    default: 'plaintext'
+    default: 'python'
   },
   theme: {
     type: String,

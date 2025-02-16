@@ -1,34 +1,55 @@
-import React from 'react';
-import { 
-  Button, 
-  Typography, 
-  Container, 
-  Box, 
-  Paper, 
-  Grid, 
-  List, 
-  ListItem, 
-  ListItemIcon, 
+import React, { useState } from 'react';
+import {
+  Button,
+  Typography,
+  Container,
+  Box,
+  Paper,
+  Grid,
+  List,
+  ListItem,
+  ListItemIcon,
   ListItemText,
   Avatar,
-  useTheme
+  useTheme,
+  Modal,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  IconButton
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { Description, Group, Edit, CloudDone } from '@mui/icons-material';
+import { Description, Group, Edit, CloudDone, Close } from '@mui/icons-material';
 import apiClient from '../services/apiService';
 import { motion } from 'framer-motion';
+
+const LANGUAGES = [
+  'javascript', 'python', 'typescript', 'html', 'css', 'java', 'c_cpp', 'ruby'
+];
+const THEMES = ['github', 'monokai', 'tomorrow', 'twilight'];
 
 const Home = () => {
   const navigate = useNavigate();
   const theme = useTheme();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [documentSettings, setDocumentSettings] = useState({
+    title: 'Untitled Document',
+    language: 'plaintext',
+    theme: 'github'
+  });
 
   const handleNewDocument = async () => {
     try {
       const response = await apiClient.post('/documents', {
-        title: 'New Document',
+        title: documentSettings.title || 'Untitled Document',
         content: '',
+        language: documentSettings.language,
+        theme: documentSettings.theme
       });
       navigate(`/document/${response.data._id}`);
+      setModalOpen(false);
     } catch (error) {
       console.error('Error creating new document:', error);
     }
@@ -40,6 +61,18 @@ const Home = () => {
     { icon: <CloudDone />, text: 'Auto-save functionality' },
     { icon: <Description />, text: 'Unlimited documents' }
   ];
+
+  const modalStyle = {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 400,
+    bgcolor: 'background.paper',
+    borderRadius: 4,
+    boxShadow: 24,
+    p: 4,
+  };
 
   return (
     <Box sx={{
@@ -60,6 +93,70 @@ const Home = () => {
             background: 'rgba(255, 255, 255, 0.95)',
             backdropFilter: 'blur(10px)'
           }}>
+            {/* New Document Modal */}
+            <Modal open={modalOpen} onClose={() => setModalOpen(false)}>
+              <Paper sx={modalStyle}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                  <Typography variant="h6" fontWeight="600">
+                    New Document Settings
+                  </Typography>
+                  <IconButton onClick={() => setModalOpen(false)}>
+                    <Close />
+                  </IconButton>
+                </Box>
+
+                <TextField
+                  fullWidth
+                  label="Document Title"
+                  value={documentSettings.title}
+                  onChange={(e) => setDocumentSettings({ ...documentSettings, title: e.target.value })}
+                  sx={{ mb: 3 }}
+                />
+
+                <FormControl fullWidth sx={{ mb: 3 }}>
+                  <InputLabel>Language</InputLabel>
+                  <Select
+                    value={documentSettings.language}
+                    label="Language"
+                    onChange={(e) => setDocumentSettings({ ...documentSettings, language: e.target.value })}
+                  >
+                    {LANGUAGES.map(lang => (
+                      <MenuItem key={lang} value={lang}>
+                        {lang.replace('_', '/').toUpperCase()}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth sx={{ mb: 3 }}>
+                  <InputLabel>Theme</InputLabel>
+                  <Select
+                    value={documentSettings.theme}
+                    label="Theme"
+                    onChange={(e) => setDocumentSettings({ ...documentSettings, theme: e.target.value })}
+                  >
+                    {THEMES.map(theme => (
+                      <MenuItem key={theme} value={theme}>
+                        {theme.charAt(0).toUpperCase() + theme.slice(1)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <Button
+                  fullWidth
+                  variant="contained"
+                  onClick={handleNewDocument}
+                  sx={{
+                    background: `linear-gradient(45deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
+                  }}
+                >
+                  Create Document
+                </Button>
+              </Paper>
+            </Modal>
+
+            {/* Main Content */}
             <Box textAlign="center" mb={6}>
               <Typography variant="h3" gutterBottom sx={{
                 fontWeight: 700,
@@ -71,13 +168,13 @@ const Home = () => {
               <Typography variant="h6" color="text.secondary" sx={{ mb: 4 }}>
                 Create, collaborate, and conquer documents in real-time
               </Typography>
-              
+
               <motion.div whileHover={{ scale: 1.05 }}>
                 <Button
                   variant="contained"
                   size="large"
                   startIcon={<Description />}
-                  onClick={handleNewDocument}
+                  onClick={() => setModalOpen(true)}
                   sx={{
                     px: 6,
                     py: 2,
@@ -109,18 +206,18 @@ const Home = () => {
                     >
                       <ListItem sx={{ px: 0 }}>
                         <ListItemIcon>
-                          <Avatar sx={{ 
+                          <Avatar sx={{
                             bgcolor: theme.palette.primary.light,
                             color: theme.palette.primary.contrastText
                           }}>
                             {feature.icon}
                           </Avatar>
                         </ListItemIcon>
-                        <ListItemText 
-                          primary={feature.text} 
-                          primaryTypographyProps={{ 
-                            variant: 'body1', 
-                            fontWeight: 500 
+                        <ListItemText
+                          primary={feature.text}
+                          primaryTypographyProps={{
+                            variant: 'body1',
+                            fontWeight: 500
                           }}
                         />
                       </ListItem>
@@ -133,9 +230,9 @@ const Home = () => {
                 <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
                   Quick Start Guide
                 </Typography>
-                <Box component="ol" sx={{ 
+                <Box component="ol" sx={{
                   pl: 2,
-                  '& li': { 
+                  '& li': {
                     mb: 2,
                     '&::marker': {
                       color: theme.palette.primary.main,

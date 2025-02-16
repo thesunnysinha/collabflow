@@ -7,14 +7,14 @@ exports.createDocument = async (req, res) => {
     try {
         const { title, content, language, theme } = req.body;
         
-        // Validation
-        if (!title || !content) {
-            throw new ValidationError('Title and content are required');
+        // Validation (only title is required)
+        if (!title) {
+            throw new ValidationError('Title is required');
         }
 
         const newDocument = new Document({ 
-            title,
-            content,
+            title: title.trim(),
+            content: content || '',
             language: language || 'plaintext',
             theme: theme || 'github'
         });

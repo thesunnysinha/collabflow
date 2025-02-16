@@ -7,6 +7,7 @@ const { initializeSocket } = require('./services/socket');
 const documentRoutes = require('./routes/documentRoutes');
 const { connectToKafka, shutdownProducer } = require('./services/kafka/producer');
 const { startConsumer, shutdownConsumer } = require('./services/kafka/consumer');
+const { globalErrorHandler } = require('./utils/errorHandler');
 
 const app = express();
 const server = http.createServer(app);
@@ -47,8 +48,8 @@ const initializeMessaging = async () => {
 // Routes
 app.use('/api/documents', documentRoutes);
 
-// Error Handling Middleware
-app.use(require('./utils/errorHandler'));
+// After all routes
+app.use(globalErrorHandler);
 
 // Graceful shutdown
 const shutdown = async () => {
