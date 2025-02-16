@@ -1,9 +1,22 @@
 const mongoose = require('mongoose');
 
 const documentSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  content: { type: String, default: "" },
+  title: {
+    type: String,
+    required: true
+  },
+  content: {
+    type: String,
+    default: ''
+  },
+  language: {
+    type: String,
+    default: 'plaintext'
+  },
+  theme: {
+    type: String,
+    default: 'github'
+  }
 }, { timestamps: true });
 
-const Document = mongoose.model('Document', documentSchema);
-module.exports = Document;
+module.exports = mongoose.model('Document', documentSchema);

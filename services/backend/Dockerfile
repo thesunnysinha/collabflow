@@ -8,4 +8,4 @@ RUN npm install
 COPY . .
 
 # Use nodemon for development
-CMD ["npx", "nodemon", "server.js"]
+CMD ["npx", "nodemon", "index.js"]

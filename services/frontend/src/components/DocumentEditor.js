@@ -1,157 +1,302 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { io } from "socket.io-client";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
+import AceEditor from "react-ace";
+import axios from "axios";
 import {
   Typography,
   Container,
   Paper,
   Box,
-  Button,
-  Card,
-  CardContent,
-  List,
-  ListItem,
-  Avatar,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
+  CircularProgress,
+  Alert,
+  Button,
+  IconButton,
+  Tooltip
 } from "@mui/material";
-import axios from "axios"; // Import Axios for API calls
-import CollaboratorModal from "./CollaboratorModal"; // Modal for adding collaborators
+import {
+  Code,
+  Palette,
+  Share,
+  Settings
+} from "@mui/icons-material";
+import { styled } from "@mui/material/styles";
+import { motion } from "framer-motion";
+import { API_BASE_URL, BASE_URL } from "../config";
+import { debounce } from "lodash";
 
-const socket = io("http://localhost:5000");
+// Supported languages and themes
+const LANGUAGES = [
+  'java', 'python', 'javascript', 'typescript', 'html', 'css', 'c_cpp', 'ruby'
+];
+const THEMES = ['github', 'monokai', 'tomorrow', 'twilight'];
 
-const editorConfig = {
-  namespace: "MyEditor",
-  onError: (error) => {
-    console.error("Lexical Error:", error);
+// Preload editor resources
+LANGUAGES.forEach(lang => {
+  try {
+    require(`ace-builds/src-noconflict/mode-${lang}`);
+    require(`ace-builds/src-noconflict/snippets/${lang}`);
+  } catch (e) {
+    console.warn(`Language ${lang} not available`);
+  }
+});
+
+THEMES.forEach(theme => {
+  require(`ace-builds/src-noconflict/theme-${theme}`);
+});
+
+// Styled components
+const GradientHeader = styled(Box)(({ theme }) => ({
+  background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
+  borderRadius: "16px",
+  padding: theme.spacing(2),
+  marginBottom: theme.spacing(2),
+  boxShadow: theme.shadows[4],
+}));
+
+const StyledSelect = styled(Select)(({ theme }) => ({
+  borderRadius: "12px",
+  "& .MuiOutlinedInput-notchedOutline": {
+    borderColor: theme.palette.divider,
   },
-};
+  "&:hover .MuiOutlinedInput-notchedOutline": {
+    borderColor: theme.palette.primary.main,
+  },
+}));
 
 function DocumentEditor() {
-  const { id: documentId } = useParams(); // Get document ID from the URL
-  const [content, setContent] = useState(""); // Document content
-  const [contributors, setContributors] = useState([]); // List of collaborators
-  const [username, setUsername] = useState(""); // Default username (empty initially)
-  const [modalOpen, setModalOpen] = useState(true); // Modal open state
-  const [editorType, setEditorType] = useState("rich-text"); // Default editor type
+  const { id: documentId } = useParams();
+  const [documentData, setDocumentData] = useState({
+    content: "",
+    title: "",
+    language: 'plaintext',
+    theme: 'github'
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const debounceRef = useRef();
+  const socket = useRef(io(BASE_URL, { autoConnect: false }));
 
-  // Reconnect logic for Socket.IO
-  const handleReconnect = () => {
-    socket.connect();
-    console.log("Reconnected to Socket.IO");
-  };
-
-  // Fetch document content and setup Socket.IO listeners
+  // Initialize debounce function
   useEffect(() => {
-    const fetchDataAndSetupSocketListeners = async () => {
-      try {
-        // Fetch document data from the backend API
-        const response = await axios.get(`http://localhost:5000/api/documents/${documentId}`);
-        setContent(response.data.content); // Set the fetched content
-
-        // Join the document room via Socket.IO
-        socket.emit("joinDocument", { docId: documentId, username });
-
-        // Listen for updates to contributors
-        socket.on(`contributors-${documentId}`, (names) => {
-          setContributors(names);
-        });
-
-        // Listen for new collaborators joining
-        socket.on("newCollaborator", (name) => {
-          if (!contributors.includes(name)) {
-            setContributors((prev) => [...prev, name]);
-          }
-        });
-      } catch (error) {
-        console.error("Error fetching document:", error);
-      }
-    };
-
-    fetchDataAndSetupSocketListeners();
+    debounceRef.current = debounce((update) => {
+      socket.current.emit("document-update", {
+        docId: documentId,
+        ...update
+      });
+    }, 300);
 
     return () => {
-      socket.off(`contributors-${documentId}`);
-      socket.off("newCollaborator");
+      debounceRef.current?.cancel();
     };
   }, [documentId]);
 
-  const handleAddCollaborator = (name) => {
-    if (name && !contributors.includes(name)) {
-      socket.emit("joinDocument", { docId: documentId, username: name });
-      setContributors((prev) => [...prev.filter((user) => user !== "Anonymous"), name]); // Remove "Anonymous" if present
-      setUsername(name);
-
-      // Emit an event to notify all clients about the new collaborator
-      socket.emit("newCollaborator", name);
+  // Fetch document data
+  const fetchDocument = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_BASE_URL}/documents/${documentId}`);
+      setDocumentData({
+        content: response.data.content,
+        title: response.data.title,
+        language: response.data.language || 'plaintext',
+        theme: response.data.theme || 'github'
+      });
+      setError(null);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load document');
+    } finally {
+      setLoading(false);
     }
-    setModalOpen(false); // Close modal after adding collaborator
-  };
+  }, [documentId]);
+
+  // Updated socket.io connection management
+  useEffect(() => {
+    const currentSocket = socket.current;
+    currentSocket.connect();
+
+    return () => {
+      currentSocket.disconnect();
+    };
+  }, []);
+
+  // Updated document synchronization effect
+  useEffect(() => {
+    const currentSocket = socket.current;
+    const handleDocumentUpdate = (update) => {
+      setDocumentData(prev => ({ ...prev, ...update }));
+    };
+
+    currentSocket.emit("join-document", documentId);
+    currentSocket.on(`document-update-${documentId}`, handleDocumentUpdate);
+
+    return () => {
+      currentSocket.off(`document-update-${documentId}`, handleDocumentUpdate);
+      currentSocket.emit("leave-document", documentId);
+    };
+  }, [documentId]);
+
+
+
+  // Unified change handler
+  const handleChange = useCallback((type, value) => {
+    const update = { [type]: value };
+    setDocumentData(prev => ({ ...prev, ...update }));
+    debounceRef.current?.(update);
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchDocument();
+  }, [fetchDocument]);
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" mt={4}>
+        <CircularProgress size={60} />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button
+          variant="contained"
+          onClick={fetchDocument}
+          sx={{
+            background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
+            color: 'white'
+          }}
+        >
+          Retry Loading
+        </Button>
+      </Container>
+    );
+  }
 
   return (
-    <Container maxWidth="lg" style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      {/* Top Bar */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" padding={2} style={{ backgroundColor: "#1976d2", color: "white", borderRadius: "8px", marginBottom: "10px" }}>
-        <Typography variant="h5">Collaborative Document Editor - <strong>Doc ID:</strong> {documentId}</Typography>
-        <Button variant="contained" color="secondary" onClick={handleReconnect}>
-          Reconnect
-        </Button>
-      </Box>
+    <Container maxWidth="lg" sx={{
+      display: "flex",
+      flexDirection: "column",
+      height: "100vh",
+      py: 4
+    }}>
+      <GradientHeader>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <motion.div initial={{ x: -20 }} animate={{ x: 0 }}>
+            <Typography variant="h4" noWrap sx={{
+              color: "white",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 1
+            }}>
+              <Code fontSize="large" />
+              {documentData.title || `Untitled-${documentId.slice(0, 5)}`}
+            </Typography>
+          </motion.div>
 
-      {/* Collaborator Modal */}
-      <CollaboratorModal open={modalOpen} handleClose={() => setModalOpen(false)} handleAddCollaborator={handleAddCollaborator} />
+          <Box display="flex" gap={1}>
+            <Tooltip title="Share Document">
+              <IconButton sx={{ color: "white" }}>
+                <Share />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      </GradientHeader>
 
-      {/* Main Content */}
-      <Box style={{ display: "flex", flexGrow: 1 }}>
-        {/* Left Side: Text Editor */}
-        <Paper elevation={3} style={{ flexGrow: 1, padding: "20px", marginRight: "20px", height: '100%', borderRadius: "8px", backgroundColor: "#f9f9f9", overflowY: "auto" }}>
-          <LexicalComposer initialConfig={editorConfig}>
-            <RichTextPlugin
-              contentEditable={<ContentEditable style={{ minHeight: "90%", fontSize: "16px", lineHeight: "1.6", fontFamily: "'Roboto', sans-serif" }} />}
-              placeholder={<div style={{ color: "#999" }}>Start typing...</div>}
-              ErrorBoundary={LexicalErrorBoundary}
-            />
-          </LexicalComposer>
-        </Paper>
-
-        {/* Right Side: Collaborators */}
-        <Box width="300px" padding={2} style={{ overflowY: "auto", height: '100%', borderRadius: "8px", backgroundColor: "#fff", boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)" }}>
-          <Typography variant="h6" gutterBottom>Collaborators</Typography>
-
-          {/* Editor Type Selection */}
-          <FormControl fullWidth variant="outlined" margin="normal">
-            <InputLabel id="editor-type-label">Select Editor Type</InputLabel>
-            <Select
-              labelId="editor-type-label"
-              value={editorType}
-              onChange={(e) => setEditorType(e.target.value)}
-              label="Select Editor Type"
+      <Paper elevation={0} sx={{
+        flex: 1,
+        p: 2,
+        borderRadius: 4,
+        border: "2px solid",
+        borderColor: "divider",
+        background: "linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(245,245,245,0.95) 100%)",
+        overflow: "hidden"
+      }}>
+        <Box sx={{
+          mb: 2,
+          display: "flex",
+          gap: 2,
+          "& > *": {
+            flex: 1,
+            maxWidth: 300
+          }
+        }}>
+          <FormControl variant="outlined" size="small">
+            <InputLabel sx={{ fontWeight: 500 }}>Language</InputLabel>
+            <StyledSelect
+              value={documentData.language}
+              onChange={(e) => handleChange('language', e.target.value)}
+              startAdornment={<Code color="action" sx={{ mr: 1 }} />}
             >
-              <MenuItem value="rich-text">Rich Text</MenuItem>
-              <MenuItem value="markdown">Markdown</MenuItem>
-            </Select>
+              {LANGUAGES.map(lang => (
+                <MenuItem key={lang} value={lang}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Palette fontSize="small" />
+                    {lang.replace('_', '/').toUpperCase()}
+                  </Box>
+                </MenuItem>
+              ))}
+            </StyledSelect>
           </FormControl>
 
-          <List>
-            {contributors.map((name, index) => (
-              <ListItem key={index} style={{ paddingLeft: 0 }}>
-                <Card variant="outlined" style={{ width: '100%', marginBottom: '10px', display: 'flex', alignItems: 'center' }}>
-                  <Avatar style={{ marginRight: '10px', backgroundColor: '#1976d2' }}>{name.charAt(0).toUpperCase()}</Avatar>
-                  <CardContent style={{ paddingTop: '8px', paddingBottom: '8px' }}>
-                    <Typography variant="body1">{name}</Typography>
-                  </CardContent>
-                </Card>
-              </ListItem>
-            ))}
-          </List>
+          <FormControl variant="outlined" size="small">
+            <InputLabel sx={{ fontWeight: 500 }}>Theme</InputLabel>
+            <StyledSelect
+              value={documentData.theme}
+              onChange={(e) => handleChange('theme', e.target.value)}
+              startAdornment={<Palette color="action" sx={{ mr: 1 }} />}
+            >
+              {THEMES.map(theme => (
+                <MenuItem key={theme} value={theme}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Settings fontSize="small" />
+                    {theme.charAt(0).toUpperCase() + theme.slice(1)}
+                  </Box>
+                </MenuItem>
+              ))}
+            </StyledSelect>
+          </FormControl>
         </Box>
-      </Box>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <AceEditor
+            mode={documentData.language}
+            theme={documentData.theme}
+            value={documentData.content}
+            onChange={(value) => handleChange('content', value)}
+            name="code-editor"
+            width="100%"
+            height="calc(100vh - 220px)"
+            fontSize={14}
+            showPrintMargin={false}
+            editorProps={{ $blockScrolling: true }}
+            setOptions={{
+              enableBasicAutocompletion: true,
+              enableLiveAutocompletion: true,
+              enableSnippets: true,
+              tabSize: 2,
+              showLineNumbers: true,
+              showGutter: true
+            }}
+            style={{
+              borderRadius: "12px",
+              border: "1px solid",
+              borderColor: "divider"
+            }}
+          />
+        </motion.div>
+      </Paper>
     </Container>
   );
 }

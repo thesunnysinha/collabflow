@@ -1,40 +1,18 @@
 const express = require('express');
 const Document = require('../models/Document');
+const {
+  createDocument,
+  getDocument,
+  updateDocument
+} = require('../controllers/documentController');
+
 
 const router = express.Router();
 
-// Create a new document
-router.post('/', async (req, res) => {
-  const { title, content } = req.body;
-  const newDocument = new Document({ title, content });
 
-  try {
-    const savedDocument = await newDocument.save();
-    res.status(201).json(savedDocument);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+router.post('/', createDocument);
+router.get('/:id', getDocument);
+router.post('/:id', updateDocument);
 
-// Get a document by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const document = await Document.findById(req.params.id);
-    if (!document) return res.status(404).json({ message: 'Document not found' });
-    res.json(document);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Update a document by ID
-router.post('/:id', async (req, res) => {
-  try {
-    const document = await Document.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(document);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
 module.exports = router;
