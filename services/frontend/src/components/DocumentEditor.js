@@ -73,7 +73,7 @@ function DocumentEditor() {
   const [documentData, setDocumentData] = useState({
     content: "",
     title: "",
-    language: 'plaintext',
+    language: 'python',
     theme: 'github'
   });
   const [loading, setLoading] = useState(true);
@@ -103,7 +103,7 @@ function DocumentEditor() {
       setDocumentData({
         content: response.data.content,
         title: response.data.title,
-        language: response.data.language || 'plaintext',
+        language: response.data.language || 'python',
         theme: response.data.theme || 'github'
       });
       setError(null);

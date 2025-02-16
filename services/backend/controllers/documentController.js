@@ -15,7 +15,7 @@ exports.createDocument = async (req, res) => {
         const newDocument = new Document({ 
             title: title.trim(),
             content: content || '',
-            language: language || 'plaintext',
+            language: language || 'python',
             theme: theme || 'github'
         });
 

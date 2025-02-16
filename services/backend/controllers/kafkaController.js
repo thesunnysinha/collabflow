@@ -1,4 +1,3 @@
-// server/controllers/kafkaController.js
 const { Kafka } = require('kafkajs');
 const { KAFKA_BROKERS } = require('../config/env');
 const Document = require('../models/Document');

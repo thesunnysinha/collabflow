@@ -5,6 +5,7 @@ const http = require('http');
 const cors = require('cors');
 const { initializeSocket } = require('./services/socket');
 const documentRoutes = require('./routes/documentRoutes');
+const authRoutes = require('./routes/authRoutes');
 const { connectToKafka, shutdownProducer } = require('./services/kafka/producer');
 const { startConsumer, shutdownConsumer } = require('./services/kafka/consumer');
 const { globalErrorHandler } = require('./utils/errorHandler');
@@ -47,6 +48,7 @@ const initializeMessaging = async () => {
 
 // Routes
 app.use('/api/documents', documentRoutes);
+app.use('/api/auth', authRoutes);
 
 // After all routes
 app.use(globalErrorHandler);

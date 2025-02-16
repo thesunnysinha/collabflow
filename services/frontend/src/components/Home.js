@@ -36,7 +36,7 @@ const Home = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [documentSettings, setDocumentSettings] = useState({
     title: 'Untitled Document',
-    language: 'plaintext',
+    language: 'python',
     theme: 'github'
   });
 

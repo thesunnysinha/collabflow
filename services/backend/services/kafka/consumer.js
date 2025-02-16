@@ -50,7 +50,7 @@ const startConsumer = async (io) => {
           io.to(update.documentId).emit('document-update', {
             content: update.content,
             title: update.title || '',
-            language: update.language || 'plaintext',
+            language: update.language || 'python',
             theme: update.theme || 'github',
             timestamp: update.timestamp
           });
