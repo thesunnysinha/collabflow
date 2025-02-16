@@ -16,20 +16,17 @@ import {
   Alert,
   Button,
   IconButton,
-  Tooltip
+  Tooltip,
+  Avatar,
+  Chip
 } from "@mui/material";
-import {
-  Code,
-  Palette,
-  Share,
-  Settings
-} from "@mui/icons-material";
+import { Code, Palette, Share, People } from "@mui/icons-material";
 import { styled } from "@mui/material/styles";
 import { motion } from "framer-motion";
 import { API_BASE_URL, BASE_URL } from "../config";
 import { debounce } from "lodash";
+import CollaboratorModal from "./CollaboratorModal";
 
-// Supported languages and themes
 const LANGUAGES = [
   'java', 'python', 'javascript', 'typescript', 'html', 'css', 'c_cpp', 'ruby'
 ];
@@ -49,7 +46,6 @@ THEMES.forEach(theme => {
   require(`ace-builds/src-noconflict/theme-${theme}`);
 });
 
-// Styled components
 const GradientHeader = styled(Box)(({ theme }) => ({
   background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
   borderRadius: "16px",
@@ -76,26 +72,18 @@ function DocumentEditor() {
     language: 'python',
     theme: 'github'
   });
+  const [collaborators, setCollaborators] = useState([]);
+  const [userName, setUserName] = useState(localStorage.getItem('collabUserName') || '');
+  const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const debounceRef = useRef();
   const socket = useRef(io(BASE_URL, { autoConnect: false }));
 
-  // Initialize debounce function
   useEffect(() => {
-    debounceRef.current = debounce((update) => {
-      socket.current.emit("document-update", {
-        docId: documentId,
-        ...update
-      });
-    }, 300);
+    if (!userName) setIsCollaboratorModalOpen(true);
+  }, [userName]);
 
-    return () => {
-      debounceRef.current?.cancel();
-    };
-  }, [documentId]);
-
-  // Fetch document data
   const fetchDocument = useCallback(async () => {
     try {
       setLoading(true);
@@ -114,45 +102,101 @@ function DocumentEditor() {
     }
   }, [documentId]);
 
-  // Updated socket.io connection management
   useEffect(() => {
     const currentSocket = socket.current;
-    currentSocket.connect();
+
+    if (userName && documentId) {
+      currentSocket.connect();
+      currentSocket.emit('join-document', { documentId, userName });
+    }
 
     return () => {
       currentSocket.disconnect();
     };
-  }, []);
+  }, [userName, documentId]);
 
-  // Updated document synchronization effect
   useEffect(() => {
     const currentSocket = socket.current;
     const handleDocumentUpdate = (update) => {
-      setDocumentData(prev => ({ ...prev, ...update }));
+      // Prevent self-update loops
+      if (update.socketId !== currentSocket.id) {
+        setDocumentData(prev => ({ ...prev, ...update }));
+      }
     };
 
-    currentSocket.emit("join-document", documentId);
-    currentSocket.on(`document-update-${documentId}`, handleDocumentUpdate);
+    const eventName = `document-update-${documentId}`;
+    currentSocket.on(eventName, handleDocumentUpdate);
 
     return () => {
-      currentSocket.off(`document-update-${documentId}`, handleDocumentUpdate);
-      currentSocket.emit("leave-document", documentId);
+      currentSocket.off(eventName, handleDocumentUpdate);
     };
   }, [documentId]);
 
+  useEffect(() => {
+    debounceRef.current = debounce((update) => {
+      socket.current.emit("document-update", {
+        ...update,
+        socketId: socket.current.id
+      });
+    }, 300);
 
+    return () => debounceRef.current?.cancel();
+  }, [documentId]);
 
-  // Unified change handler
-  const handleChange = useCallback((type, value) => {
-    const update = { [type]: value };
-    setDocumentData(prev => ({ ...prev, ...update }));
-    debounceRef.current?.(update);
+  useEffect(() => {
+    const currentSocket = socket.current;
+    const handleCollaboratorsUpdate = (updatedCollabs) => {
+      setCollaborators(updatedCollabs);
+    };
+
+    currentSocket.on('collaborators-update', handleCollaboratorsUpdate);
+    return () => {
+      currentSocket.off('collaborators-update', handleCollaboratorsUpdate);
+    };
   }, []);
 
-  // Initial load
+  const handleChange = useCallback((type, value) => {
+    setDocumentData(prev => {
+      // Only update if content actually changed
+      if (prev[type] === value) return prev;
+
+      const update = { [type]: value };
+      debounceRef.current?.(update);
+      return { ...prev, ...update };
+    });
+  }, []);
+
   useEffect(() => {
     fetchDocument();
   }, [fetchDocument]);
+
+  const handleAddCollaborator = (name) => {
+    localStorage.setItem('collabUserName', name);
+    setUserName(name);
+    setIsCollaboratorModalOpen(false);
+  };
+
+  const renderCollaborators = () => (
+    <Box display="flex" alignItems="center" gap={1}>
+      <People sx={{ color: 'white', mr: 1 }} />
+      {collaborators.map((collab) => (
+        <Tooltip key={collab.id} title={collab.name}>
+          <Chip
+            avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>
+              {collab.name[0].toUpperCase()}
+            </Avatar>}
+            label={collab.name}
+            variant="outlined"
+            sx={{
+              color: 'white',
+              borderColor: 'rgba(255,255,255,0.3)',
+              '& .MuiChip-label': { fontWeight: 500 }
+            }}
+          />
+        </Tooltip>
+      ))}
+    </Box>
+  );
 
   if (loading) {
     return (
@@ -189,6 +233,11 @@ function DocumentEditor() {
       height: "100vh",
       py: 4
     }}>
+      <CollaboratorModal
+        open={isCollaboratorModalOpen}
+        handleAddCollaborator={handleAddCollaborator}
+      />
+
       <GradientHeader>
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <motion.div initial={{ x: -20 }} animate={{ x: 0 }}>
@@ -204,7 +253,8 @@ function DocumentEditor() {
             </Typography>
           </motion.div>
 
-          <Box display="flex" gap={1}>
+          <Box display="flex" alignItems="center" gap={2}>
+            {renderCollaborators()}
             <Tooltip title="Share Document">
               <IconButton sx={{ color: "white" }}>
                 <Share />
@@ -241,10 +291,7 @@ function DocumentEditor() {
             >
               {LANGUAGES.map(lang => (
                 <MenuItem key={lang} value={lang}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Palette fontSize="small" />
-                    {lang.replace('_', '/').toUpperCase()}
-                  </Box>
+                  {lang.replace('_', '/').toUpperCase()}
                 </MenuItem>
               ))}
             </StyledSelect>
@@ -259,10 +306,7 @@ function DocumentEditor() {
             >
               {THEMES.map(theme => (
                 <MenuItem key={theme} value={theme}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Settings fontSize="small" />
-                    {theme.charAt(0).toUpperCase() + theme.slice(1)}
-                  </Box>
+                  {theme.charAt(0).toUpperCase() + theme.slice(1)}
                 </MenuItem>
               ))}
             </StyledSelect>
@@ -275,6 +319,7 @@ function DocumentEditor() {
             theme={documentData.theme}
             value={documentData.content}
             onChange={(value) => handleChange('content', value)}
+            readOnly={!userName}
             name="code-editor"
             width="100%"
             height="calc(100vh - 220px)"
