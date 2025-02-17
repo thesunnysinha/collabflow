@@ -10,8 +10,8 @@ runner = SetupRunner(config)
 ssh_configs = [
     SSHConfig(
         ssh_username=os.environ.get('GITHUB_SSH_USERNAME'),
-        ssh_password=os.environ.get('GITHUB_SSH_PASSWORD'),
         ssh_hostname=os.environ.get('GITHUB_SSH_HOSTNAME'),
+        ssh_identity_file=os.environ.get('GITHUB_SSH_IDENTITY_FILE'),
     ),
 ]
 

@@ -23,10 +23,19 @@ jobs:
         python -m pip install --upgrade pip
         pip install vm-tool
 
+    - name: Create SSH identity file
+      run: |
+        echo "${{ secrets.SSH_ID_RSA }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
     - name: Deploy to VM
       env:
         GITHUB_SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
-        GITHUB_SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        GITHUB_SSH_IDENTITY_FILE: ~/.ssh/id_rsa
         GITHUB_SSH_HOSTNAME: ${{ secrets.SSH_HOSTNAME }}
       run: |
         python scripts/deploy_to_vm.py
+
+    - name: Clean up SSH identity file
+      run: |
+        rm ~/.ssh/id_rsa
