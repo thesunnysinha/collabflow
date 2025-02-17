@@ -23,7 +23,7 @@ import {
 import { Code, Palette, Share, People } from "@mui/icons-material";
 import { styled } from "@mui/material/styles";
 import { motion } from "framer-motion";
-import { API_BASE_URL, BASE_URL } from "../config";
+import { API_BASE_URL } from "../config";
 import { debounce } from "lodash";
 import CollaboratorModal from "./CollaboratorModal";
 
@@ -78,7 +78,7 @@ function DocumentEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const debounceRef = useRef();
-  const socket = useRef(io(BASE_URL, { autoConnect: false }));
+  const socket = useRef(io(API_BASE_URL, { autoConnect: false }));
 
   useEffect(() => {
     if (!userName) setIsCollaboratorModalOpen(true);

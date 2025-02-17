@@ -47,8 +47,8 @@ const initializeMessaging = async () => {
 };
 
 // Routes
-app.use('/api/documents', documentRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/documents', documentRoutes);
+app.use('/auth', authRoutes);
 
 // After all routes
 app.use(globalErrorHandler);
