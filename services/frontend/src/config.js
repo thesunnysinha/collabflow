@@ -1,4 +1,3 @@
-const BASE_URL = "http://collabflow.sunnysinha.space:8000";
-const API_BASE_URL = `${BASE_URL}/api`;
+const API_BASE_URL = `http://collabflow.sunnysinha.space/api`;
 
-export { BASE_URL, API_BASE_URL };
+export { API_BASE_URL };
