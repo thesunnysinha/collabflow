@@ -29,4 +29,4 @@ jobs:
 
     - name: Deploy to VM
       run: |
-        python scripts/deploy_to_vm.py
+        python ./scripts/deploy_to_vm.py
