@@ -99,6 +99,9 @@ docker compose up --build
 Home Page
 ![Home](./samples/home.png)
 
+Editor
+![Editor](./samples/editor.png)
+
 
 ### 🤝 Contributing
 We welcome contributions! Please follow these steps:
