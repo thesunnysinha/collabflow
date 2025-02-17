@@ -27,7 +27,7 @@ A feature-rich collaborative document editor with real-time synchronization, bui
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/collabflow.git
+git clone https://github.com/thesunnysinha/collabflow.git
 cd collabflow
 ```
 
