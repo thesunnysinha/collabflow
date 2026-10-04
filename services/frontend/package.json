@@ -11,11 +11,8 @@
     "@mui/material": "^6.4.4",
     "ace-builds": "^1.38.0",
     "axios": "^1.7.9",
-    "bcryptjs": "^2.4.3",
     "cra-template": "1.2.0",
-    "express-validator": "^7.2.1",
     "framer-motion": "^12.4.3",
-    "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
     "react": "^19.0.0",
     "react-ace": "^14.0.1",
@@ -53,8 +50,6 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
-    "webpack": "^5.97.1",
-    "webpack-cli": "^6.0.1",
-    "webpack-dev-server": "^5.2.0"
+    "http-proxy-middleware": "^2.0.10"
   }
 }

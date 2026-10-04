@@ -1,95 +1,108 @@
 const { Server } = require('socket.io');
+const User = require('../models/User');
+const Document = require('../models/Document');
+const { verifyToken } = require('../middleware/auth');
+const { getAccessibleDocument, isId } = require('./documentAccess');
 const { sendDocumentUpdate } = require('./kafka/producer');
-const { ValidationError } = require('../utils/errors');
+const { sanitizeChanges } = require('./updateSchema');
+const { CORS_ORIGINS, MAX_DOCUMENT_BYTES } = require('../config/env');
+const logger = require('../utils/logger');
 
-// Track collaborators for each document { documentId: [{ id, name }] }
-const documentCollaborators = new Map();
+const MAX_EVENTS = 40;      // per socket
+const WINDOW_MS = 5000;
+
+const presence = async (io, documentId) => {
+  const sockets = await io.in(documentId).fetchSockets();
+  const seen = new Map();
+  for (const s of sockets) seen.set(s.data.userId, { id: s.data.userId, name: s.data.username });
+  io.to(documentId).emit('collaborators-update', [...seen.values()]);
+};
 
 const initializeSocket = (server) => {
   const io = new Server(server, {
-    cors: {
-      origin: '*',
-      methods: ['GET', 'POST']
-    },
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 120000
+    path: '/socket.io',
+    maxHttpBufferSize: MAX_DOCUMENT_BYTES + 4096,
+    cors: CORS_ORIGINS.length ? { origin: CORS_ORIGINS, methods: ['GET', 'POST'] } : undefined
+  });
+
+  // Authenticate during the handshake; the display name comes from the DB, never the client.
+  io.use(async (socket, next) => {
+    try {
+      const { id } = verifyToken(socket.handshake.auth?.token);
+      const user = await User.findById(id).select('username');
+      if (!user) throw new Error('unknown user');
+      socket.data.userId = String(user._id);
+      socket.data.username = user.username;
+      next();
+    } catch (e) {
+      next(new Error('Authentication failed'));
     }
   });
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
     let currentDocumentId = null;
-    let currentUserName = null;
+    let windowStart = Date.now();
+    let count = 0;
 
-    // Join document with username
-    socket.on('join-document', ({ documentId, userName }) => {
+    const allowed = () => {
+      const now = Date.now();
+      if (now - windowStart > WINDOW_MS) { windowStart = now; count = 0; }
+      return ++count <= MAX_EVENTS;
+    };
+    const fail = (message) => socket.emit('app-error', message);
+
+    socket.on('join-document', async ({ documentId } = {}) => {
       try {
-        if (!documentId || !userName) {
-          throw new ValidationError('Document ID and username are required');
+        if (!allowed()) return fail('Too many requests');
+        if (!isId(documentId)) return fail('Invalid document');
+        await getAccessibleDocument(documentId, socket.data.userId);
+
+        if (currentDocumentId && currentDocumentId !== documentId) {
+          const prev = currentDocumentId;
+          await socket.leave(prev);
+          await presence(io, prev);
         }
-
-        // Leave previous document
-        if (currentDocumentId) {
-          socket.leave(currentDocumentId);
-          const prevCollabs = documentCollaborators.get(currentDocumentId)
-            ?.filter(c => c.id !== socket.id) || [];
-          documentCollaborators.set(currentDocumentId, prevCollabs);
-          io.to(currentDocumentId).emit('collaborators-update', prevCollabs);
-        }
-
-        // Join new document
-        currentDocumentId = documentId;
-        currentUserName = userName;
-        socket.join(documentId);
-
-        // Update collaborators list
-        const newCollabs = [
-          ...documentCollaborators.get(documentId) || [],
-          { id: socket.id, name: userName }
-        ];
-        documentCollaborators.set(documentId, newCollabs);
-        io.to(documentId).emit('collaborators-update', newCollabs);
-
+        currentDocumentId = String(documentId);
+        await socket.join(currentDocumentId);
+        await presence(io, currentDocumentId);
       } catch (err) {
-        socket.emit('error', err.message);
+        fail(err.isOperational ? err.message : 'Failed to join document');
+        if (!err.isOperational) logger.error({ err }, 'join-document failed');
       }
     });
 
-    // Handle document updates
     socket.on('document-update', async (update) => {
       try {
-        if (!currentDocumentId) throw new ValidationError('Join a document first');
+        if (!allowed()) return fail('Too many requests');
+        if (!currentDocumentId) return fail('Join a document first');
+        const changes = sanitizeChanges(update);
+        if (!changes) return fail('Invalid update');
 
-        // Prepare Kafka message
-        const kafkaMessage = {
+        // Access may have been revoked since joining.
+        const stillAllowed = await Document.exists({
+          _id: currentDocumentId,
+          $or: [{ owner: socket.data.userId }, { collaborators: socket.data.userId }]
+        });
+        if (!stillAllowed) {
+          await socket.leave(currentDocumentId);
+          currentDocumentId = null;
+          return fail('Access to this document was revoked');
+        }
+
+        await sendDocumentUpdate({
           documentId: currentDocumentId,
-          ...update
-        };
-
-        // Persist to Kafka
-        await sendDocumentUpdate(kafkaMessage);
-
-        // Broadcast to other clients with document-specific event name
-        socket.to(currentDocumentId).emit(`document-update-${currentDocumentId}`, kafkaMessage);
-
+          userId: socket.data.userId,
+          socketId: socket.id,
+          changes
+        });
       } catch (err) {
-        socket.emit('error', err.message);
+        logger.error({ err }, 'document-update failed');
+        fail('Failed to save update');
       }
     });
 
-    // Handle disconnection
     socket.on('disconnect', () => {
-      if (currentDocumentId) {
-        const collabs = documentCollaborators.get(currentDocumentId)
-          ?.filter(c => c.id !== socket.id) || [];
-        documentCollaborators.set(currentDocumentId, collabs);
-        io.to(currentDocumentId).emit('collaborators-update', collabs);
-      }
-    });
-
-    // Error handling
-    socket.on('error', (err) => {
-      console.error(`Socket error (${socket.id}):`, err);
+      if (currentDocumentId) presence(io, currentDocumentId).catch(() => {});
     });
   });
 

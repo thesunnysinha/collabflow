@@ -1,89 +1,67 @@
-const { Kafka } = require('kafkajs');
+const { Kafka, logLevel } = require('kafkajs');
 const { KAFKA_BROKERS } = require('../../config/env');
-
-const kafka = new Kafka({
-  clientId: 'collab-editor-consumer',
-  brokers: KAFKA_BROKERS
-});
+const Document = require('../../models/Document');
+const logger = require('../../utils/logger');
+const { TOPIC } = require('./producer');
+const { sanitizeChanges } = require('../updateSchema');
 
 let consumer = null;
-let isConnected = false;
+let running = false;
+
+// Persists each accepted edit to MongoDB, then fans it out to the document's room.
+const handleMessage = async (io, raw) => {
+  let update;
+  try {
+    update = JSON.parse(raw);
+  } catch (e) {
+    logger.warn('Dropping unparseable Kafka message');
+    return;
+  }
+  const changes = update.documentId && sanitizeChanges(update.changes);
+  if (!changes) {
+    logger.warn({ documentId: update.documentId }, 'Dropping invalid Kafka message');
+    return;
+  }
+
+  // Throws on DB failure so kafkajs retries instead of silently losing the edit.
+  await Document.updateOne({ _id: update.documentId }, { $set: changes });
+
+  io.to(String(update.documentId)).emit(`document-update-${update.documentId}`, {
+    ...changes,
+    socketId: update.socketId,
+    timestamp: update.timestamp
+  });
+};
 
 const startConsumer = async (io) => {
-  try {
-    if (!consumer) {
-      consumer = kafka.consumer({ 
-        groupId: 'document-group',
-        retry: {
-          maxRetryTime: 30000,
-          initialRetryTime: 1000
-        }
-      });
-    }
-
-    if (!isConnected) {
-      await consumer.connect();
-      isConnected = true;
-      console.log('Connected to Kafka broker');
-    }
-
-    await consumer.subscribe({ 
-      topic: 'document-updates', 
-      fromBeginning: false 
-    });
-
-    console.log('Subscribed to document-updates topic');
-
-    await consumer.run({
-      autoCommit: true,
-      eachMessage: async ({ topic, partition, message }) => {
-        try {
-          const update = JSON.parse(message.value.toString());
-          
-          // Validate message format
-          if (!update.documentId || !update.content) {
-            console.error('Invalid message format:', update);
-            return;
-          }
-
-          // Broadcast to document-specific room
-          io.to(update.documentId).emit('document-update', {
-            content: update.content,
-            title: update.title || '',
-            language: update.language || 'python',
-            theme: update.theme || 'github',
-            timestamp: update.timestamp
-          });
-
-          console.log(`Processed update for document ${update.documentId}`);
-        } catch (err) {
-          console.error('Error processing message:', err);
-          // Implement dead-letter queue logic here if needed
-        }
-      }
-    });
-
-    console.log('Kafka consumer started successfully');
-
-  } catch (err) {
-    console.error('Failed to start Kafka consumer:', err);
-    // Implement proper error recovery here
-    process.exit(1); // Exit process for containerized environments
-  }
+  const kafka = new Kafka({
+    clientId: 'collabflow-consumer',
+    brokers: KAFKA_BROKERS,
+    logLevel: logLevel.WARN,
+    retry: { initialRetryTime: 500, maxRetryTime: 30000, retries: 10 }
+  });
+  consumer = kafka.consumer({ groupId: 'document-group' });
+  await consumer.connect();
+  await consumer.subscribe({ topic: TOPIC, fromBeginning: false });
+  await consumer.run({
+    eachMessage: async ({ message }) => handleMessage(io, message.value.toString())
+  });
+  running = true;
+  consumer.on(consumer.events.CRASH, ({ payload }) => {
+    running = false;
+    logger.error({ err: payload.error }, 'Kafka consumer crashed');
+  });
+  logger.info('Kafka consumer started');
 };
+
+const isConsumerRunning = () => running;
 
 const shutdownConsumer = async () => {
-  if (isConnected) {
+  if (consumer) {
+    running = false;
     await consumer.disconnect();
-    isConnected = false;
-    console.log('Kafka consumer disconnected');
+    logger.info('Kafka consumer disconnected');
   }
 };
 
-process.on('SIGTERM', shutdownConsumer);
-process.on('SIGINT', shutdownConsumer);
-
-module.exports = { 
-  startConsumer,
-  shutdownConsumer
-};
+module.exports = { startConsumer, shutdownConsumer, isConsumerRunning, handleMessage };

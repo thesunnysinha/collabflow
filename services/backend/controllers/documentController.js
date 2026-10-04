@@ -1,102 +1,58 @@
 const Document = require('../models/Document');
-const { sendDocumentUpdate } = require('../services/kafka/producer');
-const { NotFoundError, ValidationError } = require('../utils/errors');
+const User = require('../models/User');
+const { getAccessibleDocument, isId } = require('../services/documentAccess');
+const { NotFoundError, ForbiddenError, ValidationError } = require('../utils/errors');
 
-// Create new document
+const summary = '_id title language theme owner updatedAt createdAt';
+
+exports.listDocuments = async (req, res) => {
+  const docs = await Document.find({ $or: [{ owner: req.user.id }, { collaborators: req.user.id }] })
+    .select(summary).sort({ updatedAt: -1 }).limit(200).lean();
+  res.json({ success: true, data: docs });
+};
+
 exports.createDocument = async (req, res) => {
-    try {
-        const { title, content, language, theme } = req.body;
-        
-        // Validation (only title is required)
-        if (!title) {
-            throw new ValidationError('Title is required');
-        }
-
-        const newDocument = new Document({ 
-            title: title.trim(),
-            content: content || '',
-            language: language || 'python',
-            theme: theme || 'github'
-        });
-
-        const savedDocument = await newDocument.save();
-        
-        res.status(201).json({
-            success: true,
-            data: savedDocument
-        });
-    } catch (error) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Server error'
-        });
-    }
+  const { title, content, language, theme } = req.body;
+  const doc = await Document.create({ title, content, language, theme, owner: req.user.id });
+  res.status(201).json({ success: true, data: doc });
 };
 
-// Get single document
 exports.getDocument = async (req, res) => {
-    try {
-        const document = await Document.findById(req.params.id);
-
-        if (!document) {
-            throw new NotFoundError('Document not found');
-        }
-
-        res.json({
-            success: true,
-            data: document
-        });
-    } catch (error) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Server error'
-        });
-    }
+  const doc = await getAccessibleDocument(req.params.id, req.user.id);
+  await doc.populate('collaborators', 'username');
+  res.json({ success: true, data: doc, meta: { isOwner: String(doc.owner) === req.user.id } });
 };
 
-// Update document with Kafka integration
 exports.updateDocument = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { content, title, language, theme } = req.body;
+  const doc = await getAccessibleDocument(req.params.id, req.user.id);
+  for (const key of ['title', 'content', 'language', 'theme']) {
+    if (req.body[key] !== undefined) doc[key] = req.body[key];
+  }
+  await doc.save();
+  res.json({ success: true, data: doc });
+};
 
-        // Validate input
-        if (!content && !title && !language && !theme) {
-            throw new ValidationError('At least one field (title, content, language, or theme) must be provided');
-        }
+exports.deleteDocument = async (req, res) => {
+  const doc = await getAccessibleDocument(req.params.id, req.user.id);
+  if (String(doc.owner) !== req.user.id) throw new ForbiddenError('Only the owner can delete a document');
+  await doc.deleteOne();
+  res.status(204).end();
+};
 
-        // Find and update document
-        const document = await Document.findById(id);
-        if (!document) {
-            throw new NotFoundError('Document not found');
-        }
+exports.addCollaborator = async (req, res) => {
+  const doc = await getAccessibleDocument(req.params.id, req.user.id);
+  if (String(doc.owner) !== req.user.id) throw new ForbiddenError('Only the owner can share a document');
+  const user = await User.findOne({ username: String(req.body.username).toLowerCase() });
+  if (!user) throw new NotFoundError('User not found');
+  if (String(user._id) === String(doc.owner)) throw new ValidationError('Owner already has access');
+  await Document.updateOne({ _id: doc._id }, { $addToSet: { collaborators: user._id } });
+  res.status(201).json({ success: true, data: { id: user._id, username: user.username } });
+};
 
-        // Update fields
-        if (title) document.title = title;
-        if (content) document.content = content;
-        if (language) document.language = language;
-        if (theme) document.theme = theme;
-
-        const updatedDocument = await document.save();
-
-        // Send update to Kafka
-        await sendDocumentUpdate({
-            documentId: id,
-            title: updatedDocument.title,
-            content: updatedDocument.content,
-            language: updatedDocument.language,
-            theme: updatedDocument.theme,
-            timestamp: new Date()
-        });
-
-        res.json({
-            success: true,
-            data: updatedDocument
-        });
-    } catch (error) {
-        res.status(error.statusCode || 500).json({
-            success: false,
-            error: error.message || 'Server error'
-        });
-    }
+exports.removeCollaborator = async (req, res) => {
+  const doc = await getAccessibleDocument(req.params.id, req.user.id);
+  if (String(doc.owner) !== req.user.id) throw new ForbiddenError('Only the owner can change sharing');
+  if (!isId(req.params.userId)) throw new NotFoundError('User not found');
+  await Document.updateOne({ _id: doc._id }, { $pull: { collaborators: req.params.userId } });
+  res.status(204).end();
 };

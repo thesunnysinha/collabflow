@@ -1,0 +1,39 @@
+# Development overlay: hot reload, host-exposed ports, Kafdrop.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# (see ./dev.sh). Never use this file in production.
+services:
+  mongo:
+    ports: ["27017:27017"]
+
+  backend:
+    build:
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./services/backend:/app
+      - /app/node_modules
+    ports: ["8000:8000"]
+
+  frontend:
+    build:
+      target: dev
+    environment:
+      DEV_BACKEND_URL: http://backend:8000
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
+    ports: ["3000:3000"]
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:4.0.2
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+    depends_on: [kafka]
+    ports: ["9000:9000"]
+    networks: [collaborativenetwork]
+
+  # In dev, use http://localhost:3000 directly.
+  caddy:
+    profiles: ["edge"]

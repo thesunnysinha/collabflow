@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Button,
   Typography,
@@ -11,6 +11,7 @@ import {
   ListItemIcon,
   ListItemText,
   Avatar,
+  Alert,
   useTheme,
   Modal,
   TextField,
@@ -23,6 +24,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Description, Group, Edit, CloudDone, Close } from '@mui/icons-material';
 import apiClient from '../services/apiService';
+import { useAuth } from '../auth';
 import { motion } from 'framer-motion';
 
 const LANGUAGES = [
@@ -32,6 +34,9 @@ const THEMES = ['github', 'monokai', 'tomorrow', 'twilight'];
 
 const Home = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [documents, setDocuments] = useState([]);
+  const [error, setError] = useState(null);
   const theme = useTheme();
   const [modalOpen, setModalOpen] = useState(false);
   const [documentSettings, setDocumentSettings] = useState({
@@ -39,6 +44,12 @@ const Home = () => {
     language: 'python',
     theme: 'github'
   });
+
+  useEffect(() => {
+    apiClient.get('/documents')
+      .then((res) => setDocuments(res.data))
+      .catch((err) => setError(err.message));
+  }, []);
 
   const handleNewDocument = async () => {
     try {
@@ -51,7 +62,7 @@ const Home = () => {
       navigate(`/document/${response.data._id}`);
       setModalOpen(false);
     } catch (error) {
-      console.error('Error creating new document:', error);
+      setError(error.message);
     }
   };
 
@@ -156,6 +167,12 @@ const Home = () => {
               </Paper>
             </Modal>
 
+            <Box display="flex" justifyContent="flex-end" alignItems="center" gap={2} mb={2}>
+              <Typography variant="body2" color="text.secondary">Signed in as {user?.username}</Typography>
+              <Button size="small" onClick={logout}>Sign out</Button>
+            </Box>
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
             {/* Main Content */}
             <Box textAlign="center" mb={6}>
               <Typography variant="h3" gutterBottom sx={{
@@ -190,6 +207,20 @@ const Home = () => {
                 </Button>
               </motion.div>
             </Box>
+
+            {documents.length > 0 && (
+              <Box mb={4}>
+                <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>Your documents</Typography>
+                <List>
+                  {documents.map((d) => (
+                    <ListItem key={d._id} button onClick={() => navigate(`/document/${d._id}`)}
+                      secondaryAction={<Typography variant="caption">{new Date(d.updatedAt).toLocaleString()}</Typography>}>
+                      <ListItemText primary={d.title} secondary={d.language} />
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            )}
 
             <Grid container spacing={4} sx={{ mt: 4 }}>
               <Grid item xs={12} md={6}>

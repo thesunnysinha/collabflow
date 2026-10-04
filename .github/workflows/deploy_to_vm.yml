@@ -6,15 +6,20 @@ on:
       - main
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
+    concurrency: deploy
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -24,9 +29,11 @@ jobs:
         pip install vm-tool
 
     - name: Create SSH identity file
+      env:
+        SSH_ID_RSA: ${{ secrets.SSH_ID_RSA }}
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_ID_RSA }}" > ~/.ssh/id_rsa
+        printf '%s\n' "$SSH_ID_RSA" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
 
     - name: Deploy to VM
@@ -38,5 +45,6 @@ jobs:
         python scripts/deploy_to_vm.py
 
     - name: Clean up SSH identity file
+      if: always()
       run: |
         rm ~/.ssh/id_rsa

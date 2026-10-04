@@ -1,35 +1,34 @@
-const User = require('../models/User');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { validationResult } = require('express-validator');
+const User = require('../models/User');
+const { signToken } = require('../middleware/auth');
+const { UnauthorizedError, ConflictError } = require('../utils/errors');
+
+const BCRYPT_COST = 12;
+// Compared against when the user doesn't exist so response time doesn't reveal valid usernames.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', BCRYPT_COST);
 
 exports.register = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const { username, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    try {
-        const newUser = new User({ username, password: hashedPassword });
-        await newUser.save();
-        res.status(201).json({ message: 'User registered successfully' });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-}
+  const { username, password } = req.body;
+  const password_hash = await bcrypt.hash(password, BCRYPT_COST);
+  try {
+    const user = await User.create({ username, password: password_hash });
+    res.status(201).json({ success: true, data: { token: signToken(user._id), user } });
+  } catch (err) {
+    if (err.code === 11000) throw new ConflictError('Username is already taken');
+    throw err;
+  }
+};
 
 exports.login = async (req, res) => {
-    const { username, password } = req.body;
+  const { username, password } = req.body;
+  const user = await User.findOne({ username: String(username).toLowerCase() });
+  const ok = await bcrypt.compare(password, user ? user.password : DUMMY_HASH);
+  if (!user || !ok) throw new UnauthorizedError('Invalid credentials');
+  res.json({ success: true, data: { token: signToken(user._id), user } });
+};
 
-    const user = await User.findOne({ username });
-
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-    res.json({ token });
-
-}
+exports.me = async (req, res) => {
+  const user = await User.findById(req.user.id);
+  if (!user) throw new UnauthorizedError();
+  res.json({ success: true, data: { user } });
+};

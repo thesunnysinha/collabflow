@@ -1,101 +1,115 @@
+# Production stack. Only Caddy (80/443) is exposed to the host; every other service
+# lives on the internal network. For local development use docker-compose.dev.yml.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
 services:
   mongo:
-    image: mongo
-    container_name: mongo
-    restart: always
-    ports:
-      - "27017:27017"
-    networks:
-      - collaborativenetwork
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-collabflow}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+    networks: [collaborativenetwork]
 
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    container_name: zookeeper
-    restart: always
+    image: confluentinc/cp-zookeeper:7.6.1
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    networks:
-      - collaborativenetwork
-  
-  kafdrop:
-    image: obsidiandynamics/kafdrop
-    container_name: kafdrop
-    restart: always
-    ports:
-      - "9000:9000"  # Expose Kafdrop UI on port 9000
-    environment:
-      KAFKA_BROKERCONNECT: kafka:9092  # Internal address for Kafka
-    depends_on:
-      - kafka
-    networks:
-      - collaborativenetwork
-
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    logging: *logging
+    networks: [collaborativenetwork]
 
   kafka:
-    image: confluentinc/cp-kafka:latest
-    container_name: kafka
-    restart: always
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"        # Internal communication port
-      - "29092:29092"      # External access port for localhost
+    image: confluentinc/cp-kafka:7.6.1
+    restart: unless-stopped
+    depends_on: [zookeeper]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    networks:
-      - collaborativenetwork
-
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Edits are persisted to MongoDB by the consumer; Kafka only needs a short buffer.
+      KAFKA_LOG_RETENTION_HOURS: 24
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    logging: *logging
+    networks: [collaborativenetwork]
 
   backend:
     build:
       context: ./services/backend
-      dockerfile: Dockerfile
-    container_name: backend
-    restart: always
-    volumes:
-      - ./services/backend:/app
-      - /app/node_modules  # Prevent overwriting node_modules inside the container
-    ports:
-      - "8000:8000"
+      target: production
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 8000
+      MONGO_URI: mongodb://${MONGO_USER:-collabflow}:${MONGO_PASSWORD}@mongo:27017/collabflow?authSource=admin
+      KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
-      - mongo
-      - kafka  # Ensure Kafka is started before backend
-    networks:
-      - collaborativenetwork
+      mongo: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    logging: *logging
+    networks: [collaborativenetwork]
 
   frontend:
     build:
       context: ./services/frontend
-      dockerfile: Dockerfile
-    container_name: frontend
-    restart: always
-    volumes:
-      - ./services/frontend:/app
-      - /app/node_modules  # Prevent overwriting node_modules inside the container
-    ports:
-      - "3000:3000"
-    networks:
-      - collaborativenetwork
+      target: production
+    restart: unless-stopped
+    logging: *logging
+    networks: [collaborativenetwork]
 
-  nginx:
-    image: nginx:latest
-    container_name: nginx
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
     ports:
       - "80:80"
       - "443:443"
-    networks:
-      - collaborativenetwork
-    restart: always
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [backend, frontend]
+    logging: *logging
+    networks: [collaborativenetwork]
+
+volumes:
+  mongo_data:
+  zookeeper_data:
+  zookeeper_log:
+  kafka_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   collaborativenetwork:
