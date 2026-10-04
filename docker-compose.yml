@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-collabflow}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?required}
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -70,7 +70,7 @@ services:
       PORT: 8000
       MONGO_URI: mongodb://${MONGO_USER:-collabflow}:${MONGO_PASSWORD}@mongo:27017/collabflow?authSource=admin
       KAFKA_BROKERS: kafka:9092
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
+      JWT_SECRET: ${JWT_SECRET:?required}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
       mongo: { condition: service_healthy }
