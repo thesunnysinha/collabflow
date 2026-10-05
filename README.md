@@ -22,23 +22,27 @@ A feature-rich collaborative document editor with real-time synchronization, bui
 
 Prerequisites: Docker with Compose v2.
 
-```bash
-git clone https://github.com/thesunnysinha/collabflow.git
-cd collabflow
-./dev.sh          # creates .env with dev defaults, then starts everything with hot reload
-```
+1. Create a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) with homepage
+   `http://localhost:3000` and callback URL `http://localhost:3000/api/auth/github/callback`.
+2. ```bash
+   git clone https://github.com/thesunnysinha/collabflow.git
+   cd collabflow
+   ./dev.sh   # creates .env on first run; add GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET, then run again
+   ```
 
-Open http://localhost:3000, register an account, and create a document. Kafdrop is at http://localhost:9000.
+Open http://localhost:3000, sign in with GitHub, and create a document. Kafdrop is at http://localhost:9000.
 
 ## 🏭 Production deployment
 
 1. Point your domain's DNS at the server and open ports 80/443 (and 443/udp).
-2. Create the environment file and fill in the secrets:
+2. Create a GitHub OAuth App with homepage `https://your.domain` and callback URL
+   `https://your.domain/api/auth/github/callback`.
+3. Create the environment file and fill in the secrets and the OAuth client id/secret:
    ```bash
    cp .env.example .env
    # DOMAIN=your.domain  JWT_SECRET=$(openssl rand -hex 32)  MONGO_PASSWORD=$(openssl rand -hex 16)
    ```
-3. Start the stack: `docker compose up -d --build`
+4. Start the stack: `docker compose up -d --build`
 
 Caddy obtains and renews the TLS certificate automatically. Only ports 80/443 are published;
 MongoDB, Kafka and ZooKeeper are reachable only on the internal Docker network. Data lives in named
@@ -48,7 +52,8 @@ Health endpoints: `/healthz` (liveness) and `/readyz` (MongoDB + Kafka readiness
 Logs are structured JSON (pino) and rotate via Docker's json-file driver.
 
 ### Security model
-- Accounts use bcrypt-hashed passwords and short-lived (1h) JWTs; auth endpoints are rate limited.
+- Sign-in is GitHub OAuth only (no passwords are stored). The OAuth `state` is signed and bound to the
+  browser by an httpOnly cookie. The app issues short-lived (1h) JWTs; auth endpoints are rate limited.
 - Every document has an owner and optional collaborators. Only they can read or edit it
   (others get 404); only the owner can share or delete. WebSockets authenticate during the handshake.
 - The server never trusts client-supplied identity, field names or sizes.
@@ -58,7 +63,8 @@ Logs are structured JSON (pino) and rotate via Docker's json-file driver.
   Socket.IO Redis adapter.
 - **Last-write-wins editing.** Concurrent edits to the same document replace each other (no OT/CRDT).
 - Single-broker Kafka (replication factor 1); fine for one VM, not for HA.
-- JWTs are stored in `localStorage` and are not revocable before expiry.
+- JWTs are stored in `localStorage` and are not revocable before expiry. Accounts are matched by GitHub
+  user id; collaborators are added by GitHub username. Accounts from the old password login are not migrated.
 
 ### CI/CD
 `.github/workflows/ci.yml` runs backend tests, an `npm audit`, the frontend build and Docker builds on

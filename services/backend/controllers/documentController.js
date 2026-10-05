@@ -42,7 +42,7 @@ exports.deleteDocument = async (req, res) => {
 exports.addCollaborator = async (req, res) => {
   const doc = await getAccessibleDocument(req.params.id, req.user.id);
   if (String(doc.owner) !== req.user.id) throw new ForbiddenError('Only the owner can share a document');
-  const user = await User.findOne({ username: String(req.body.username).toLowerCase() });
+  const user = await User.findOne({ username: String(req.body.username).toLowerCase() }).sort({ updatedAt: -1 });
   if (!user) throw new NotFoundError('User not found');
   if (String(user._id) === String(doc.owner)) throw new ValidationError('Owner already has access');
   await Document.updateOne({ _id: doc._id }, { $addToSet: { collaborators: user._id } });

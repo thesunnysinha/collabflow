@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate compose files
         run: |
-          printf 'JWT_SECRET=%s\nMONGO_PASSWORD=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 8)" > .env
+          printf 'JWT_SECRET=%s\nMONGO_PASSWORD=%s\nGITHUB_CLIENT_ID=ci\nGITHUB_CLIENT_SECRET=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 8)" "$(openssl rand -hex 8)" > .env
           docker compose config -q
           docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
       - name: Build production images

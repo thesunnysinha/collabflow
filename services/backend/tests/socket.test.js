@@ -43,8 +43,8 @@ beforeEach(() => sendDocumentUpdate.mockClear());
 describe('socket auth + access', () => {
   let alice, bob, doc;
   beforeAll(async () => {
-    alice = await User.create({ username: 'alice', password: 'x' });
-    bob = await User.create({ username: 'bob', password: 'x' });
+    alice = await User.create({ githubId: 1, username: 'alice' });
+    bob = await User.create({ githubId: 2, username: 'bob' });
     doc = await Document.create({ title: 'd', owner: alice._id });
   });
 
@@ -82,7 +82,7 @@ describe('socket auth + access', () => {
 
 describe('consumer', () => {
   it('persists valid updates and drops invalid ones', async () => {
-    const u = await User.create({ username: 'carol', password: 'x' });
+    const u = await User.create({ githubId: 3, username: 'carol' });
     const doc = await Document.create({ title: 'd', owner: u._id });
     const emit = jest.fn();
     const io = { to: jest.fn(() => ({ emit })) };

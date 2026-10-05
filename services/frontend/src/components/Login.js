@@ -1,59 +1,44 @@
-import React, { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Alert, Box, Button, Container, Link, Paper, TextField, Typography } from '@mui/material';
-import { useAuth } from '../auth';
+import React from 'react';
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
+import { Alert, Box, Button, Container, Paper, Typography } from '@mui/material';
+import { GitHub } from '@mui/icons-material';
+import { API_BASE_URL } from '../config';
+import { useAuth, rememberReturnTo } from '../auth';
+
+const ERRORS = {
+  access_denied: 'GitHub sign-in was cancelled.',
+  invalid_state: 'Your sign-in session expired. Please try again.',
+  invalid_request: 'GitHub returned an unexpected response. Please try again.',
+  github_failed: 'Could not complete sign-in with GitHub. Please try again.'
+};
 
 const Login = () => {
-  const { user, authenticate } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const location = useLocation();
-  const [mode, setMode] = useState('login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-
+  const [params] = useSearchParams();
   const from = location.state?.from || '/';
+
   if (user) return <Navigate to={from} replace />;
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await authenticate(mode, username.trim(), password);
-      navigate(from, { replace: true });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
+  const errorCode = params.get('error');
+  const signIn = () => {
+    rememberReturnTo(from);
+    // Full-page navigation: the backend redirects on to GitHub.
+    window.location.assign(`${API_BASE_URL}/auth/github`);
   };
 
-  const register = mode === 'register';
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center',
       background: 'linear-gradient(135deg, #6366f1 0%, #2563eb 100%)' }}>
       <Container maxWidth="xs">
-        <Paper elevation={6} sx={{ p: 4, borderRadius: 4 }} component="form" onSubmit={onSubmit}>
-          <Typography variant="h4" fontWeight={700} gutterBottom>
-            {register ? 'Create account' : 'Sign in'}
-          </Typography>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          <TextField fullWidth required autoFocus margin="normal" label="Username"
-            autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <TextField fullWidth required margin="normal" label="Password" type="password"
-            autoComplete={register ? 'new-password' : 'current-password'}
-            helperText={register ? 'At least 8 characters' : undefined}
-            value={password} onChange={(e) => setPassword(e.target.value)} />
-          <Button fullWidth type="submit" variant="contained" disabled={busy} sx={{ mt: 2, py: 1.2 }}>
-            {register ? 'Register' : 'Sign in'}
+        <Paper elevation={6} sx={{ p: 4, borderRadius: 4, textAlign: 'center' }}>
+          <Typography variant="h4" fontWeight={700} gutterBottom>CollabFlow</Typography>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>Sign in to create and edit documents.</Typography>
+          {errorCode && <Alert severity="error" sx={{ mb: 2 }}>{ERRORS[errorCode] || ERRORS.github_failed}</Alert>}
+          <Button fullWidth size="large" variant="contained" startIcon={<GitHub />} onClick={signIn}
+            sx={{ py: 1.4, bgcolor: '#24292f', '&:hover': { bgcolor: '#1b1f23' } }}>
+            Continue with GitHub
           </Button>
-          <Typography variant="body2" sx={{ mt: 2, textAlign: 'center' }}>
-            <Link component="button" type="button" onClick={() => { setError(null); setMode(register ? 'login' : 'register'); }}>
-              {register ? 'Already have an account? Sign in' : 'Need an account? Register'}
-            </Link>
-          </Typography>
         </Paper>
       </Container>
     </Box>

@@ -2,6 +2,8 @@ const request = require('supertest');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../app');
+const User = require('../models/User');
+const { signToken } = require('../middleware/auth');
 
 let mongod;
 let app;
@@ -19,9 +21,11 @@ beforeEach(async () => {
   await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
 });
 
-const register = async (username, password = 'password123') => {
-  const res = await request(app).post('/api/auth/register').send({ username, password });
-  return { res, token: res.body.data?.token, id: res.body.data?.user?.id };
+let nextGithubId = 1;
+// Creates a user directly (sign-in itself is covered in the oauth tests) and returns a token.
+const register = async (username) => {
+  const user = await User.create({ githubId: nextGithubId++, username });
+  return { token: signToken(user._id), id: String(user._id) };
 };
 const auth = (t) => ({ Authorization: `Bearer ${t}` });
 
@@ -34,31 +38,17 @@ describe('health', () => {
 });
 
 describe('auth', () => {
-  it('registers, rejects duplicates and logs in', async () => {
-    const { res } = await register('Alice');
-    expect(res.status).toBe(201);
-    expect(res.body.data.user.username).toBe('alice');
-    expect(res.body.data.user.password).toBeUndefined();
-    expect((await register('alice')).res.status).toBe(409);
-    const login = await request(app).post('/api/auth/login').send({ username: 'ALICE', password: 'password123' });
-    expect(login.status).toBe(200);
-    expect(login.body.data.token).toBeTruthy();
+  it('has no password endpoints', async () => {
+    await request(app).post('/api/auth/login').send({ username: 'a', password: 'b' }).expect(404);
+    await request(app).post('/api/auth/register').send({ username: 'a', password: 'b' }).expect(404);
   });
 
-  it('rejects weak input and bad credentials', async () => {
-    expect((await register('ab')).res.status).toBe(400);
-    expect((await register('bob', 'short')).res.status).toBe(400);
-    await register('bob');
-    const bad = await request(app).post('/api/auth/login').send({ username: 'bob', password: 'wrongwrong' });
-    expect(bad.status).toBe(401);
-    const unknown = await request(app).post('/api/auth/login').send({ username: 'nobody', password: 'wrongwrong' });
-    expect(unknown.body.error).toBe(bad.body.error);
-  });
-
-  it('rejects NoSQL operator payloads', async () => {
-    await register('bob');
-    const r = await request(app).post('/api/auth/login').send({ username: { $ne: '' }, password: { $ne: '' } });
-    expect(r.status).toBe(400);
+  it('/me returns the current user and rejects bad tokens', async () => {
+    const a = await register('Alice');
+    const me = await request(app).get('/api/auth/me').set(auth(a.token)).expect(200);
+    expect(me.body.data.user.username).toBe('alice');
+    await request(app).get('/api/auth/me').expect(401);
+    await request(app).get('/api/auth/me').set(auth('garbage')).expect(401);
   });
 });
 

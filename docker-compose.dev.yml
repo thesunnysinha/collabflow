@@ -10,6 +10,7 @@ services:
       target: dev
     environment:
       NODE_ENV: development
+      PUBLIC_URL: http://localhost:3000
     volumes:
       - ./services/backend:/app
       - /app/node_modules

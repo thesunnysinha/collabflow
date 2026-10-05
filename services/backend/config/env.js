@@ -3,7 +3,7 @@ require('dotenv').config();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const isProd = NODE_ENV === 'production';
 
-const required = ['MONGO_URI', 'JWT_SECRET'];
+const required = ['MONGO_URI', 'JWT_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'PUBLIC_URL'];
 const missing = required.filter((k) => !process.env[k]);
 if (missing.length) {
   throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
@@ -21,6 +21,10 @@ module.exports = {
   PORT: parseInt(process.env.PORT, 10) || 8000,
   MONGO_URI: process.env.MONGO_URI,
   JWT_SECRET: process.env.JWT_SECRET,
+  GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID,
+  GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
+  // Public origin users reach the app on, e.g. https://example.com (no trailing slash).
+  PUBLIC_URL: process.env.PUBLIC_URL.replace(/\/+$/, ''),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '1h',
   KAFKA_BROKERS: list(process.env.KAFKA_BROKERS, ['kafka:9092']),
   // Comma-separated list of allowed browser origins. Empty = same-origin only.

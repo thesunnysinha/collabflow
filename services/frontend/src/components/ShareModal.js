@@ -44,7 +44,7 @@ const ShareModal = ({ open, onClose, documentId, isOwner, collaborators, onChang
         </Box>
         {isOwner && (
           <Box component="form" onSubmit={add} display="flex" gap={1}>
-            <TextField size="small" fullWidth label="Username" value={username}
+            <TextField size="small" fullWidth label="GitHub username" value={username}
               onChange={(e) => setUsername(e.target.value)} />
             <Button type="submit" variant="contained" disabled={!username.trim()}>Add</Button>
           </Box>
