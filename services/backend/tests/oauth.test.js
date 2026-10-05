@@ -31,7 +31,7 @@ const mockGithub = (profile) => {
 
 // Performs step 1 and returns what the browser would send back to the callback.
 const start = async () => {
-  const res = await request(app).get('/api/auth/github').expect(302);
+  const res = await request(app).get('/api/v1/auth/github').expect(302);
   const loc = new URL(res.headers.location);
   const cookie = res.headers['set-cookie'][0].split(';')[0];
   return { loc, cookie, state: loc.searchParams.get('state') };
@@ -42,10 +42,10 @@ describe('GitHub OAuth', () => {
     const { loc, cookie, state } = await start();
     expect(loc.origin + loc.pathname).toBe('https://github.com/login/oauth/authorize');
     expect(loc.searchParams.get('client_id')).toBe('test-client-id');
-    expect(loc.searchParams.get('redirect_uri')).toBe('https://app.example.com/api/auth/github/callback');
+    expect(loc.searchParams.get('redirect_uri')).toBe('https://app.example.com/api/v1/auth/github/callback');
     expect(cookie).toMatch(/^oauth_state=/);
     expect(jwt.decode(state).nonce).toBe(cookie.split('=')[1]);
-    const raw = (await request(app).get('/api/auth/github')).headers['set-cookie'][0];
+    const raw = (await request(app).get('/api/v1/auth/github')).headers['set-cookie'][0];
     expect(raw).toMatch(/HttpOnly/i);
     expect(raw).toMatch(/SameSite=Lax/i);
   });
@@ -53,13 +53,13 @@ describe('GitHub OAuth', () => {
   it('creates the user on first sign-in and hands a working token to the SPA in the URL fragment', async () => {
     mockGithub({ id: 42, login: 'Octocat', avatar_url: 'https://a/b.png' });
     const { cookie, state } = await start();
-    const res = await request(app).get('/api/auth/github/callback')
+    const res = await request(app).get('/api/v1/auth/github/callback')
       .query({ code: 'abc', state }).set('Cookie', cookie).expect(302);
 
     const loc = new URL(res.headers.location);
     expect(loc.origin + loc.pathname).toBe('https://app.example.com/auth/callback');
     const token = new URLSearchParams(loc.hash.slice(1)).get('token');
-    const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`).expect(200);
+    const me = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`).expect(200);
     expect(me.body.data.user.username).toBe('octocat');
     expect(await User.countDocuments()).toBe(1);
 
@@ -72,7 +72,7 @@ describe('GitHub OAuth', () => {
     for (const login of ['old-name', 'new-name']) {
       mockGithub({ id: 7, login });
       const { cookie, state } = await start();
-      await request(app).get('/api/auth/github/callback').query({ code: 'c', state }).set('Cookie', cookie).expect(302);
+      await request(app).get('/api/v1/auth/github/callback').query({ code: 'c', state }).set('Cookie', cookie).expect(302);
     }
     const users = await User.find();
     expect(users).toHaveLength(1);
@@ -82,7 +82,7 @@ describe('GitHub OAuth', () => {
   it('rejects a callback without the matching cookie (login CSRF)', async () => {
     mockGithub({ id: 1, login: 'x' });
     const { state } = await start();
-    const res = await request(app).get('/api/auth/github/callback').query({ code: 'c', state }).expect(302);
+    const res = await request(app).get('/api/v1/auth/github/callback').query({ code: 'c', state }).expect(302);
     expect(res.headers.location).toBe('https://app.example.com/login?error=invalid_state');
     expect(global.fetch).not.toHaveBeenCalled();
     expect(await User.countDocuments()).toBe(0);
@@ -93,19 +93,19 @@ describe('GitHub OAuth', () => {
     const { cookie } = await start();
     const forged = jwt.sign({ nonce: 'whatever' }, 'wrong-secret');
     for (const q of [{ code: 'c' }, { code: 'c', state: 'junk' }, { code: 'c', state: forged }]) {
-      const res = await request(app).get('/api/auth/github/callback').query(q).set('Cookie', cookie);
+      const res = await request(app).get('/api/v1/auth/github/callback').query(q).set('Cookie', cookie);
       expect(res.headers.location).toBe('https://app.example.com/login?error=invalid_state');
     }
     expect(await User.countDocuments()).toBe(0);
   });
 
   it('handles the user denying access and GitHub failures without creating users', async () => {
-    let r = await request(app).get('/api/auth/github/callback').query({ error: 'access_denied' }).expect(302);
+    let r = await request(app).get('/api/v1/auth/github/callback').query({ error: 'access_denied' }).expect(302);
     expect(r.headers.location).toMatch(/error=access_denied/);
 
     global.fetch = jest.fn(async () => jsonRes({ error: 'bad_verification_code' }, true, 200));
     const { cookie, state } = await start();
-    r = await request(app).get('/api/auth/github/callback').query({ code: 'bad', state }).set('Cookie', cookie).expect(302);
+    r = await request(app).get('/api/v1/auth/github/callback').query({ code: 'bad', state }).set('Cookie', cookie).expect(302);
     expect(r.headers.location).toBe('https://app.example.com/login?error=github_failed');
     expect(await User.countDocuments()).toBe(0);
   });

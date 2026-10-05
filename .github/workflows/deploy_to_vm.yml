@@ -1,5 +1,8 @@
 name: Deploy to VM
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -7,7 +10,7 @@ on:
 
 jobs:
   ci:
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/quality.yml
 
   publish:
     needs: ci
@@ -16,10 +19,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.10'
 

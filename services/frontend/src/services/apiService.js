@@ -16,21 +16,22 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Resolves with the response body ({ success, data, meta }); rejects with a normalized error.
+// Resolves with the response envelope ({ success, code, message, data, meta, trace_id });
+// rejects with a normalized error.
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
     const status = error.response?.status;
     const body = error.response?.data;
     const message =
-      body?.details?.[0]?.message || body?.error || error.message || 'Unknown error occurred';
+      body?.meta?.details?.[0]?.message || body?.message || error.message || 'Unknown error occurred';
 
     // An expired/invalid token on an authenticated call ends the session.
     if (status === 401 && localStorage.getItem(TOKEN_KEY)) {
       window.dispatchEvent(new Event(LOGOUT_EVENT));
     }
 
-    return Promise.reject({ message, status, isNetworkError: !error.response });
+    return Promise.reject({ message, status, code: body?.code, traceId: body?.trace_id, isNetworkError: !error.response });
   }
 );
 

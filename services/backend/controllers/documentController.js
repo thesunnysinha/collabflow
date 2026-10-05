@@ -1,6 +1,7 @@
 const Document = require('../models/Document');
 const User = require('../models/User');
 const { getAccessibleDocument, isId } = require('../services/documentAccess');
+const { ok } = require('../utils/envelope');
 const { NotFoundError, ForbiddenError, ValidationError } = require('../utils/errors');
 
 const summary = '_id title language theme owner updatedAt createdAt';
@@ -8,19 +9,19 @@ const summary = '_id title language theme owner updatedAt createdAt';
 exports.listDocuments = async (req, res) => {
   const docs = await Document.find({ $or: [{ owner: req.user.id }, { collaborators: req.user.id }] })
     .select(summary).sort({ updatedAt: -1 }).limit(200).lean();
-  res.json({ success: true, data: docs });
+  res.json(ok(docs, req.id));
 };
 
 exports.createDocument = async (req, res) => {
   const { title, content, language, theme } = req.body;
   const doc = await Document.create({ title, content, language, theme, owner: req.user.id });
-  res.status(201).json({ success: true, data: doc });
+  res.status(201).json(ok(doc, req.id));
 };
 
 exports.getDocument = async (req, res) => {
   const doc = await getAccessibleDocument(req.params.id, req.user.id);
   await doc.populate('collaborators', 'username');
-  res.json({ success: true, data: doc, meta: { isOwner: String(doc.owner) === req.user.id } });
+  res.json(ok(doc, req.id, { isOwner: String(doc.owner) === req.user.id }));
 };
 
 exports.updateDocument = async (req, res) => {
@@ -29,7 +30,7 @@ exports.updateDocument = async (req, res) => {
     if (req.body[key] !== undefined) doc[key] = req.body[key];
   }
   await doc.save();
-  res.json({ success: true, data: doc });
+  res.json(ok(doc, req.id));
 };
 
 exports.deleteDocument = async (req, res) => {
@@ -46,7 +47,7 @@ exports.addCollaborator = async (req, res) => {
   if (!user) throw new NotFoundError('User not found');
   if (String(user._id) === String(doc.owner)) throw new ValidationError('Owner already has access');
   await Document.updateOne({ _id: doc._id }, { $addToSet: { collaborators: user._id } });
-  res.status(201).json({ success: true, data: { id: user._id, username: user.username } });
+  res.status(201).json(ok({ id: user._id, username: user.username }, req.id));
 };
 
 exports.removeCollaborator = async (req, res) => {

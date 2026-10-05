@@ -14,7 +14,7 @@ if ! grep -qE '^GITHUB_CLIENT_ID=.+' .env || ! grep -qE '^GITHUB_CLIENT_SECRET=.
 Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env first.
 Create a GitHub OAuth App (Settings > Developer settings > OAuth Apps) with:
   Homepage URL:               http://localhost:3000
-  Authorization callback URL: http://localhost:3000/api/auth/github/callback
+  Authorization callback URL: http://localhost:3000/api/v1/auth/github/callback
 MSG
   exit 1
 fi

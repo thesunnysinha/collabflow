@@ -2,14 +2,15 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { signToken } = require('../middleware/auth');
+const { ok } = require('../utils/envelope');
 const { UnauthorizedError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { JWT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, PUBLIC_URL, isProd } = require('../config/env');
 
 const COOKIE = 'oauth_state';
-const COOKIE_PATH = '/api/auth/github';
+const COOKIE_PATH = '/api/v1/auth/github';
 const STATE_TTL_S = 600;
-const CALLBACK_URL = `${PUBLIC_URL}/api/auth/github/callback`;
+const CALLBACK_URL = `${PUBLIC_URL}/api/v1/auth/github/callback`;
 
 const readCookie = (req, name) => {
   const match = (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
@@ -87,5 +88,5 @@ exports.githubCallback = async (req, res) => {
 exports.me = async (req, res) => {
   const user = await User.findById(req.user.id);
   if (!user) throw new UnauthorizedError();
-  res.json({ success: true, data: { user } });
+  res.json(ok({ user }, req.id));
 };

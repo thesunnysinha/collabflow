@@ -23,7 +23,7 @@ A feature-rich collaborative document editor with real-time synchronization, bui
 Prerequisites: Docker with Compose v2.
 
 1. Create a GitHub OAuth App (GitHub > Settings > Developer settings > OAuth Apps) with homepage
-   `http://localhost:3000` and callback URL `http://localhost:3000/api/auth/github/callback`.
+   `http://localhost:3000` and callback URL `http://localhost:3000/api/v1/auth/github/callback`.
 2. ```bash
    git clone https://github.com/thesunnysinha/collabflow.git
    cd collabflow
@@ -36,7 +36,7 @@ Open http://localhost:3000, sign in with GitHub, and create a document. Kafdrop 
 
 1. Point your domain's DNS at the server and open ports 80/443 (and 443/udp).
 2. Create a GitHub OAuth App with homepage `https://your.domain` and callback URL
-   `https://your.domain/api/auth/github/callback`.
+   `https://your.domain/api/v1/auth/github/callback`.
 3. Create the environment file and fill in the secrets and the OAuth client id/secret:
    ```bash
    cp .env.example .env
@@ -48,7 +48,8 @@ Caddy obtains and renews the TLS certificate automatically. Only ports 80/443 ar
 MongoDB, Kafka and ZooKeeper are reachable only on the internal Docker network. Data lives in named
 volumes (`mongo_data`, `kafka_data`, ...) - **back up `mongo_data`** (e.g. `mongodump`) on a schedule.
 
-Health endpoints: `/healthz` (liveness) and `/readyz` (MongoDB + Kafka readiness) on the backend.
+Health endpoints: `GET /api/v1/health` (liveness) and `GET /api/v1/ready` (MongoDB + Kafka readiness).
+Every response uses the template envelope `{success, code, message, data, meta, trace_id}` and carries `X-Request-ID`.
 Logs are structured JSON (pino) and rotate via Docker's json-file driver.
 
 ### Security model
@@ -70,6 +71,9 @@ Logs are structured JSON (pino) and rotate via Docker's json-file driver.
 `.github/workflows/ci.yml` runs backend tests, an `npm audit`, the frontend build and Docker builds on
 every PR. Pushes to `main` run CI and then deploy (`deploy_to_vm.yml`). **The server needs its own `.env`**
 (it is no longer committed to the repository).
+
+## Documentation
+Architecture: `docs/ARCHITECTURE.md`. Decisions (including why this project differs from the master template): `docs/decisions/`. Every pull request must update `CHANGELOG.md`.
 
 ## Tests
 ```bash
