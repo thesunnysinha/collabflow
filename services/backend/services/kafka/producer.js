@@ -1,81 +1,50 @@
-const { Kafka } = require('kafkajs');
+const { Kafka, logLevel } = require('kafkajs');
 const { KAFKA_BROKERS } = require('../../config/env');
+const logger = require('../../utils/logger');
 
+const TOPIC = 'document-updates';
 let producer = null;
-let isConnected = false;
-const MAX_RETRIES = 5;
-const TOPIC = 'document-updates'; // Single topic for all updates
+let connected = false;
 
 const connectToKafka = async () => {
-  try {
-    if (isConnected) return;
-
-    const kafka = new Kafka({
-      clientId: 'collab-editor-producer',
-      brokers: KAFKA_BROKERS,
-      retry: {
-        maxRetryTime: 30000,
-        initialRetryTime: 1000,
-        retries: MAX_RETRIES
-      }
-    });
-
-    producer = kafka.producer();
-    await producer.connect();
-    isConnected = true;
-    console.log('Successfully connected to Kafka cluster');
-  } catch (err) {
-    console.error('Failed to connect to Kafka:', err);
-    throw new Error('Kafka connection failed');
-  }
+  if (connected) return;
+  const kafka = new Kafka({
+    clientId: 'collabflow-producer',
+    brokers: KAFKA_BROKERS,
+    logLevel: logLevel.WARN,
+    retry: { initialRetryTime: 500, maxRetryTime: 30000, retries: 10 }
+  });
+  producer = kafka.producer({ allowAutoTopicCreation: true, idempotent: true });
+  producer.on(producer.events.DISCONNECT, () => { connected = false; });
+  await producer.connect();
+  connected = true;
+  logger.info('Kafka producer connected');
 };
 
+// message: { documentId, userId, socketId, changes }
 const sendDocumentUpdate = async (message) => {
-  try {
-    if (!isConnected) {
-      await connectToKafka();
-    }
-
-    // Validate message structure
-    if (!message.documentId || !message.content) {
-      throw new Error('Invalid message format - missing required fields');
-    }
-
-    const formattedMessage = {
-      ...message,
-      timestamp: new Date().toISOString(),
-      source: 'collab-editor'
-    };
-
-    await producer.send({
-      topic: TOPIC,
-      messages: [{
-        value: JSON.stringify(formattedMessage),
-        key: message.documentId // Partition by document ID
-      }]
-    });
-
-    console.debug(`Successfully sent update for document ${message.documentId}`);
-  } catch (err) {
-    console.error('Failed to send message:', err);
-    throw new Error('Message production failed');
+  if (!message || !message.documentId || !message.changes) {
+    throw new Error('Invalid message format - documentId and changes are required');
   }
+  if (!connected) await connectToKafka();
+  await producer.send({
+    topic: TOPIC,
+    acks: -1,
+    messages: [{
+      key: String(message.documentId), // same document -> same partition -> ordered
+      value: JSON.stringify({ ...message, timestamp: new Date().toISOString() })
+    }]
+  });
 };
+
+const isProducerConnected = () => connected;
 
 const shutdownProducer = async () => {
-  if (isConnected) {
+  if (producer && connected) {
+    connected = false;
     await producer.disconnect();
-    isConnected = false;
-    console.log('Kafka producer disconnected gracefully');
+    logger.info('Kafka producer disconnected');
   }
 };
 
-// Handle process termination gracefully
-process.on('SIGTERM', shutdownProducer);
-process.on('SIGINT', shutdownProducer);
-
-module.exports = {
-  connectToKafka,
-  sendDocumentUpdate,
-  shutdownProducer
-};
+module.exports = { TOPIC, connectToKafka, sendDocumentUpdate, shutdownProducer, isProducerConnected };

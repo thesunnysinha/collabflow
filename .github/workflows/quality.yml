@@ -1,0 +1,91 @@
+name: Quality checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    name: Require changelog entry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check changelog exists and has content
+        run: |
+          test -s CHANGELOG.md || { echo 'CHANGELOG.md is missing or empty.'; exit 1; }
+      - name: Require changelog update in pull requests
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=1
+          if ! git diff --name-only "origin/$BASE_REF...HEAD" -- CHANGELOG.md | grep -q '^CHANGELOG.md$'; then
+            echo 'Update CHANGELOG.md in every pull request.'
+            exit 1
+          fi
+
+  backend:
+    name: Backend tests and audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: services/backend/package-lock.json
+      - run: npm ci
+      - run: npm run test:ci
+      - run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: services/frontend/package-lock.json
+      - run: npm ci
+      - run: CI=true npm run build
+
+  docker:
+    name: Validate workflows and build images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # A single bad YAML value makes GitHub report a run with no jobs; parse every file here.
+      - name: Validate workflow and Compose YAML
+        run: |
+          pip install pyyaml
+          python - <<'PY'
+          import glob, yaml
+          for f in glob.glob(".github/workflows/*.yml") + glob.glob("docker-compose*.yml"):
+              list(yaml.safe_load_all(open(f)))
+              print("ok", f)
+          PY
+      - name: Validate Compose files
+        run: |
+          printf 'JWT_SECRET=%s\nMONGO_PASSWORD=%s\nGITHUB_CLIENT_ID=ci\nGITHUB_CLIENT_SECRET=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 8)" "$(openssl rand -hex 8)" > .env
+          docker compose config -q
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+      - name: Build production images
+        run: docker compose build

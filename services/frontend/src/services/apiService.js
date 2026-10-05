@@ -1,54 +1,37 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
 
+export const TOKEN_KEY = 'authToken';
+export const LOGOUT_EVENT = 'auth:logout';
+
 const apiClient = axios.create({
-  baseURL: `${API_BASE_URL}`,
+  baseURL: API_BASE_URL,
   timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  }
+  headers: { 'Content-Type': 'application/json' }
 });
 
-// Request interceptor for auth tokens (if added later)
-apiClient.interceptors.request.use(config => {
-  const token = localStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Enhanced response interceptor
+// Resolves with the response envelope ({ success, code, message, data, meta, trace_id });
+// rejects with a normalized error.
 apiClient.interceptors.response.use(
-  response => {
-    // Handle Kafka event metadata if needed
-    if (response.data?.kafkaMetadata) {
-      console.debug('Kafka event ID:', response.data.kafkaMetadata.eventId);
-    }
-    return response.data;
-  },
-  error => {
-    const errorMessage = error.response?.data?.message ||
-      error.message ||
-      'Unknown error occurred';
+  (response) => response.data,
+  (error) => {
+    const status = error.response?.status;
+    const body = error.response?.data;
+    const message =
+      body?.meta?.details?.[0]?.message || body?.message || error.message || 'Unknown error occurred';
 
-    console.error(`API Error [${error.config?.method?.toUpperCase()} ${error.config?.url}]:`, {
-      message: errorMessage,
-      status: error.response?.status,
-      code: error.code
-    });
-
-    // Handle specific error cases
-    if (error.response?.status === 401) {
-      // Redirect to login if authentication is added
+    // An expired/invalid token on an authenticated call ends the session.
+    if (status === 401 && localStorage.getItem(TOKEN_KEY)) {
+      window.dispatchEvent(new Event(LOGOUT_EVENT));
     }
 
-    return Promise.reject({
-      message: errorMessage,
-      status: error.response?.status,
-      code: error.code,
-      isNetworkError: !error.response
-    });
+    return Promise.reject({ message, status, code: body?.code, traceId: body?.trace_id, isNetworkError: !error.response });
   }
 );
 

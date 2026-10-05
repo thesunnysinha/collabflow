@@ -1,96 +1,34 @@
+const logger = require('./logger');
+const { AppError, NotFoundError } = require('./errors');
+const { failure } = require('./envelope');
 
-class AppError extends Error {
-    constructor(message, statusCode) {
-      super(message);
-      this.statusCode = statusCode;
-      this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
-      this.isOperational = true;
-      Error.captureStackTrace(this, this.constructor);
-    }
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+const notFoundHandler = (req, res, next) => next(new NotFoundError('Not found.'));
+
+// eslint-disable-next-line no-unused-vars
+const globalErrorHandler = (err, req, res, next) => {
+  let error = err;
+
+  if (err.type === 'entity.too.large') error = new AppError('Request body too large', 413, 'PAYLOAD_TOO_LARGE');
+  else if (err.type === 'entity.parse.failed') error = new AppError('Malformed JSON body', 400, 'BAD_REQUEST');
+  else if (err.name === 'CastError') error = new AppError('Invalid identifier', 422, 'VALIDATION_ERROR');
+  else if (err.name === 'ValidationError' && err.errors) error = new AppError('Invalid input', 422, 'VALIDATION_ERROR');
+  else if (err.code === 11000) error = new AppError('Resource already exists', 409, 'CONFLICT');
+  else if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    error = new AppError('Invalid or expired token', 401, 'UNAUTHORIZED');
   }
-  
-  const handleValidationErrorDB = (err) => {
-    const errors = Object.values(err.errors).map((el) => el.message);
-    const message = `Invalid input data. ${errors.join('. ')}`;
-    return new AppError(message, 400);
-  };
-  
-  const handleCastErrorDB = (err) => {
-    const message = `Invalid ${err.path}: ${err.value}`;
-    return new AppError(message, 400);
-  };
-  
-  const handleDuplicateFieldsDB = (err) => {
-    const value = err.keyValue ? Object.values(err.keyValue)[0] : 'unknown';
-    const message = `Duplicate field value: ${value}. Please use another value!`;
-    return new AppError(message, 409);
-  };
-  
-  const handleJWTError = () =>
-    new AppError('Invalid token. Please log in again!', 401);
-  
-  const handleJWTExpiredError = () =>
-    new AppError('Your token has expired! Please log in again.', 401);
-  
-  const sendErrorDev = (err, res) => {
-    res.status(err.statusCode).json({
-      status: err.status,
-      error: err,
-      message: err.message,
-      stack: err.stack,
-    });
-  };
-  
-  const sendErrorProd = (err, res) => {
-    if (err.isOperational) {
-      res.status(err.statusCode).json({
-        status: err.status,
-        message: err.message,
-      });
-    } else {
-      console.error('ERROR 💥', err);
-      res.status(500).json({
-        status: 'error',
-        message: 'Something went very wrong!',
-      });
-    }
-  };
-  
-  const globalErrorHandler = (err, req, res, next) => {
-    err.statusCode = err.statusCode || 500;
-    err.status = err.status || 'error';
-  
-    if (process.env.NODE_ENV === 'development') {
-      sendErrorDev(err, res);
-    } else if (process.env.NODE_ENV === 'production') {
-      let error = { ...err };
-      error.message = err.message;
-  
-      if (error.name === 'ValidationError') error = handleValidationErrorDB(error);
-      if (error.name === 'CastError') error = handleCastErrorDB(error);
-      if (error.code === 11000) error = handleDuplicateFieldsDB(error);
-      if (error.name === 'JsonWebTokenError') error = handleJWTError();
-      if (error.name === 'TokenExpiredError') error = handleJWTExpiredError();
-  
-      sendErrorProd(error, res);
-    }
-  };
-  
-  // For unhandled promise rejections
-  process.on('unhandledRejection', (err) => {
-    console.log('UNHANDLED REJECTION! 💥 Shutting down...');
-    console.log(err.name, err.message);
-    process.exit(1);
-  });
-  
-  // For uncaught exceptions
-  process.on('uncaughtException', (err) => {
-    console.log('UNCAUGHT EXCEPTION! 💥 Shutting down...');
-    console.log(err.name, err.message);
-    process.exit(1);
-  });
-  
-  module.exports = {
-    AppError,
-    globalErrorHandler,
-  };
+
+  const status = error.statusCode || 500;
+  if (status >= 500) (req.log || logger).error({ err }, 'Unhandled error');
+
+  const operational = error.isOperational;
+  res.status(status).json(failure(
+    operational ? error.code : 'INTERNAL_ERROR',
+    operational ? error.message : 'Internal server error',
+    req.id,
+    error.details ? { details: error.details } : {}
+  ));
+};
+
+module.exports = { asyncHandler, notFoundHandler, globalErrorHandler };
